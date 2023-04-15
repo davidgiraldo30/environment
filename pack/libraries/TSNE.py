@@ -1,113 +1,82 @@
 import numpy as np
 
-class T_SNE:
+class tsne:
+    def __init__(self, n_components=2, perplexity=15.0, max_iter=50, momentum = 1.0, learning_rate=10,random_state=1234):
+        """
+        T-SNE: A t-Distributed Stochastic Neighbor Embedding implementation. Built based on https://github.com/nlml/tsne_raw
+        It's a tool to visualize high-dimensional data. It converts
+        similarities between data points to joint probabilities and tries
+        to minimize the Kullback-Leibler divergence between the joint
+        probabilities of the low-dimensional embedding and the
+        high-dimensional data. 
+        Parameters:
+        ----------
+        max_iter : int, default 300
+        perplexity : float, default 15.0
+        n_components : int, default 2
+        """
+        self.n_components = n_components
+        self.perplexity = perplexity
+        self.max_iter = max_iter    
+        self.momentum = momentum
+        self.lr = learning_rate
+        self.seed=random_state
 
-       
+    def fit(self, X):
+        self.Y = np.random.RandomState(self.seed).normal(0., 0.0001, [X.shape[0], self.n_components])
+        self.Q, self.distances = self.q_tsne()
+        self.P=self.p_joint(X)
 
-    def __init__(self,x,n_components, perplexity=30.0, learning_rate=200.0, n_iter=1000, tol=1e-5):   
-        self.x=x 
-        self.perplexity=perplexity
-        self.tol=tol
-        self.n_components=n_components
-        self.learning_rate=learning_rate
-        self.n_iter=n_iter
-        self.n = self.x.shape[0]
-        self.P = self.calculate_P()
-        Y = np.random.randn(self.n, self.n_components)
-        for i in range(n_iter):
-            cost = self.compute_cost(self.P, Q)
-            grad = self.compute_gradient(self.P, Y)
-            Y -= learning_rate * grad
-            Q = self.calculate_Q(Y)
-        return Y
+    def transform(self, X):
+        if self.momentum:
+            Y_m2 = self.Y.copy()
+            Y_m1 = self.Y.copy()
 
+        for i in range(self.max_iter):
 
+            # Get Q and distances (distances only used for t-SNE)
+            self.Q, self.distances = self.q_tsne()
+            # Estimate gradients with respect to Y
+            grads = self.tsne_grad()
 
-        def euclidean_distance(self,v1, v2):
-            '''Computes de distance between two vectors'''
-            return np.sqrt(np.sum((v1 - v2) ** 2))
-    
-        def calculate_pairwise_distances(self):
-            '''Compute a distances matrix, takes all pair of possible pouinst mixes and check its 
-            distance'''
-            self.distances = np.zeros((self.n, self.n))
-            for i in range(self.n):
-                for j in range(i + 1, self.n):
-                    self.distances[i, j] = euclidean_distance(self.x[i], self.x[j])
-                    self.distances[j, i] = self.distances[i, j]
+            # Update Y
+            self.Y = self.Y - self.lr * grads
 
-        def calculate_P(self):
-            '''creates a probability matrix(n*n), takes every point and computes de probability that
-            another point be its neighboor on a gaussian distribution'''
-            pairwise_distances = calculate_pairwise_distances(self.x)
-            self.P = np.zeros((self.n, self.n))
-            for i in range(self.n):
-                #Beta is a parameter to find a correct sigma with a given perplexy, 
-                # beta will be in betamin and betamax, betamin and betamax stars whit big 
-                # values, this will be modifiers
-                beta = 1.0
-                betamin = -np.inf
-                betamax = np.inf
-                #Compute Distance matrix Di, taking form i all the indexes from the other points and
-                #concatenate this on Di
-                Di = pairwise_distances[i, np.concatenate((np.r_[0:i], np.r_[i+1:self.n]))]
-                #Shanon entropy and thisP is de afinity matrix, whit H we look for an specific perplexity
-                H, thisP = entropy(Di, beta)
-                Hdiff = H - perplexity
-                tries = 0
-                #if the Shanon entropy is too big it come to modify beta
-                while np.abs(Hdiff) > tol and tries < 50:
-                    if Hdiff > 0:
-                        #the beta limits are delimited
-                        betamin = beta
-                        #ask if betamax is infinite
-                        if np.isinf(betamax):
-                            beta = beta * 2.
-                        else:
-                            beta = (beta + betamax) / 2.
-                    else:
-                        #the beta limits are delimited
-                        betamax = beta
-                        #ask if betamin is infinite
-                        if np.isinf(betamin):
-                            beta = beta / 2.
-                        else:
-                            beta = (beta + betamin) / 2.
-                    #recalculates shanon entrpy and afinity matrix
-                    H, thisP = entropy(Di, beta)                    
-                    Hdiff = H - perplexity
-                    tries += 1
-                self.P[i, np.concatenate((np.r_[0:i], np.r_[i+1:self.n]))] = thisP
+            if self.momentum:  # Add momentum
+                self.Y += self.momentum * (Y_m1 - Y_m2)
+                # Update previous Y's for momentum
+                Y_m2 = Y_m1.copy()
+                Y_m1 = self.Y.copy()
+        return self.Y
 
-        def entropy(self,D, beta):
-            '''Shanon entropy'''
-            prob = np.exp(-D * beta)
-            sumprob = np.sum(prob)
-            H = np.log(sumprob) + beta * np.sum(D * prob) / sumprob
-            prob = prob / sumprob
-            return H, prob
-        
-        def compute_gradient(self, Y):
-            '''the error gradient, it calculates the difference between the afinity matrix with all 
-            the features and the the afinity matrix withot all the features, it modify de the points 
-            location'''
-            d = Y.shape[1]
-            self.Q = np.zeros((self.n, self.n))
-            PQ = np.zeros((self.n, self.n))
-            for i in range(self.n):
-                for j in range(i + 1, self.n):
-                    self.Q[i, j] = 1.0 / (1.0 + np.sum((Y[i] - Y[j]) ** 2))
-                    self.Q[j, i] = self.Q[i, j]
-                    PQ[i, j] = self.P[i, j] - self.Q[i, j]
-                    PQ[j, i] = self.P[j, i] - self.Q[j, i]
-            grad = np.zeros((self.n, d))
-            for i in range(self.n):
-                for j in range(self.n):
-                    grad[i] += 4 * (PQ[i, j] * (Y[i] - Y[j]) * self.Q[i, j])
-            return grad
+    def fit_transform(self, X):
+        self.fit(X)
+        return self.transform(X)
 
-        def compute_cost(self):
-            ''' compute the cost function, is the distance between de matrix with all features
-            and reduced matrix'''
-            cost = np.sum(self.P * np.log(self.P / self.Q))
-            return cost    
+    def p_joint(self, X):
+        """Given a data matrix X, gives joint probabilities matrix.
+        # Arguments
+            X: Input data matrix.
+        # Returns:
+            P: Matrix with entries p_ij = joint probabilities.
+        """
+        def p_conditional_to_joint(P):
+            """Given conditional probabilities matrix P, return
+            approximation of joint distribution probabilities."""
+            return (P + P.T) / (2. * P.shape[0])
+        def calc_prob_matrix(distances, sigmas=None, zero_index=None):
+            """Convert a distances matrix to a matrix of probabilities."""
+            if sigmas is not None:
+                two_sig_sq = 2. * np.square(sigmas.reshape((-1, 1)))
+                return self.softmax(distances / two_sig_sq, zero_index=zero_index)
+            else:
+                return self.softmax(distances, zero_index=zero_index)
+        # Get the negative euclidian distances matrix for our data
+        distances = self.neg_squared_euc_dists(X)
+        # Find optimal sigma for each row of this distances matrix
+        sigmas = self.find_optimal_sigmas()
+        # Calculate the probabilities based on these optimal sigmas
+        p_conditional = calc_prob_matrix(distances, sigmas)
+        # Go from conditional to joint probabilities matrix
+        self.P = p_conditional_to_joint(p_conditional)
+        return self.
